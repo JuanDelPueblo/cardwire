@@ -1,7 +1,7 @@
 //! DRM display connector detection and node resolution.
 
 use log::{info, warn};
-use std::{fs, io, path::Path, time::Duration};
+use std::{env, fs, io, path::Path, time::Duration};
 use udev::{Device, Enumerator};
 
 const NON_PHYSICAL: &[&str] = &["Virtual-", "Unknown-", "Writeback-"];
@@ -164,6 +164,8 @@ pub async fn send_drm_uevent(card: u32, action: UdevAction) -> io::Result<()> {
             tokio::fs::write(format!("/sys/class/drm/card{card}/uevent"), "add\n").await
         }
         UdevAction::Remove => {
+            let desktop = env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| "<unset>".to_string());
+            info!("sending drm remove for card{card}; XDG_CURRENT_DESKTOP={desktop}");
             tokio::fs::write(format!("/sys/class/drm/card{card}/uevent"), "remove\n").await
         }
     }
