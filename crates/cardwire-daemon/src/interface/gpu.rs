@@ -1,7 +1,7 @@
 //! DBUS Interface for single gpu interaction
 
 use std::{
-    collections::{BTreeMap, HashMap}, fs, sync::{Arc, OnceLock}
+    collections::{BTreeMap, HashMap}, fs, sync::{Arc, OnceLock}, time::Duration
 };
 
 use crate::{
@@ -145,11 +145,61 @@ impl GpuInterface {
             blocker.unblock_inode(*inode, self.id).into_fdo()?;
         }
         drop(blocker);
+
+        // A synthetic DRM add event can make compositors probe a runtime-suspended dGPU on
+        // their main thread. Temporarily force the device awake so the probe completes quickly,
+        // then restore the previous runtime power-management policy.
+        let restore_power_control = if self.device.is_discrete() {
+            let path = format!(
+                "/sys/bus/pci/devices/{}/power/control",
+                self.device.pci().pci_address()
+            );
+            match tokio::fs::read_to_string(&path).await {
+                Ok(previous) if previous.trim() != "on" => {
+                    match tokio::fs::write(&path, "on\n").await {
+                        Ok(()) => {
+                            info!("woke {} before drm add", self.device.name());
+                            Some((path, previous.trim().to_string()))
+                        }
+                        Err(err) => {
+                            warn!(
+                                "failed to wake {} before drm add: {err}",
+                                self.device.name()
+                            );
+                            None
+                        }
+                    }
+                }
+                Ok(_) => None,
+                Err(err) => {
+                    warn!(
+                        "failed to read runtime power policy for {}: {err}",
+                        self.device.name()
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         if let Err(err) = send_drm_uevent(*self.device.card(), UdevAction::Add).await {
             warn!(
                 "failed to send drm uevent for {}: {err}",
                 self.device.name()
             );
+        }
+
+        if let Some((path, previous)) = restore_power_control {
+            let gpu_name = self.device.name().to_string();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                if let Err(err) = tokio::fs::write(path, format!("{previous}\n")).await {
+                    warn!("failed to restore runtime power policy for {gpu_name}: {err}");
+                } else {
+                    info!("restored runtime power policy for {gpu_name} to {previous}");
+                }
+            });
         }
         Ok(())
     }

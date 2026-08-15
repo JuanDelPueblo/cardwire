@@ -1,10 +1,8 @@
 //! DRM display connector detection and node resolution.
 
 use log::{info, warn};
-use std::{env, fs, io, path::Path, time::Duration};
+use std::{fs, io, path::Path, time::Duration};
 use udev::{Device, Enumerator};
-
-use crate::core::desktop::Desktop;
 
 const NON_PHYSICAL: &[&str] = &["Virtual-", "Unknown-", "Writeback-"];
 const INTERNAL_PANELS: &[&str] = &["eDP-", "LVDS-", "DSI-", "DPI-", "SPI-"];
@@ -166,17 +164,7 @@ pub async fn send_drm_uevent(card: u32, action: UdevAction) -> io::Result<()> {
             tokio::fs::write(format!("/sys/class/drm/card{card}/uevent"), "add\n").await
         }
         UdevAction::Remove => {
-            let desktop_str: String = match env::var("XDG_CURRENT_DESKTOP") {
-                Ok(value) => value,
-                Err(_) => return Ok(()),
-            };
-            // Mutter has no device removal: a "remove" event only makes it rescan the blocked
-            // card, hitting its stale-pointer crash path. No-op until fixed upstream.
-            if Desktop::from_str(&desktop_str).is_some_and(|d| d == Desktop::Gnome) {
-                Ok(())
-            } else {
-                tokio::fs::write(format!("/sys/class/drm/card{card}/uevent"), "remove\n").await
-            }
+            tokio::fs::write(format!("/sys/class/drm/card{card}/uevent"), "remove\n").await
         }
     }
 }
