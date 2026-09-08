@@ -39,7 +39,7 @@ jobs:
       - name: Install Stable Rust
         uses: dtolnay/rust-toolchain@eac0f66a48bc4b70a10b9acd4c4e930f835d95ff # 1.95.0
 
-      - uses: cargo-bins/cargo-binstall@v1.22.0
+      - uses: cargo-bins/cargo-binstall@75b4bfae1b2c753a6806bbce6e6cb89b602de33c # v1.22.0
         with:
           version: "1.21.1"
       - name: Install bpf-linker
@@ -106,6 +106,19 @@ jobs:
           name: ${{ steps.pkg.outputs.name }}
           path: "/build/*.pkg.tar.zst"
           if-no-files-found: error
+
+  Cachix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: cachix/install-nix-action@6004951b182f8860210c8d6f0d808ec5b1a33d28 # v25
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: cardwire
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+      - run: nix build .#
 
   Release:
     if: github.event_name == 'push'
